@@ -1,0 +1,4 @@
+{
+    "extraScripts": ["contentScript/selectionFix.ts"],
+    "buildOptions": { "target": "es2020" }
+}
