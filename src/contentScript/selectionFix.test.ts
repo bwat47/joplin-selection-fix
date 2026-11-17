@@ -195,6 +195,23 @@ describe('selectionFixExtension', () => {
         expect(select(doc, 39, 5)).toEqual([39, 4]);
     });
 
+    it('preserves selection endpoints next to or inside a visible link title', () => {
+        const doc = 'See [Joplin](https://joplinapp.org "Website") now';
+        const labelEnd = doc.indexOf(']');
+        const insideTitle = doc.indexOf('Website') + 3;
+
+        expect(select(doc, 0, labelEnd)).toEqual([0, labelEnd]);
+        expect(select(doc, labelEnd, 0)).toEqual([labelEnd, 0]);
+        expect(select(doc, 0, insideTitle)).toEqual([0, insideTitle]);
+        expect(select(doc, doc.length, insideTitle)).toEqual([doc.length, insideTitle]);
+    });
+
+    it('does not extend a link selection across a visible reference label', () => {
+        const doc = 'See [Joplin][site]\n\n[site]: https://joplinapp.org';
+        const labelEnd = doc.indexOf(']');
+        expect(select(doc, 0, labelEnd)).toEqual([0, labelEnd]);
+    });
+
     it('handles bold inside a link', () => {
         const doc = '[**Joplin**](https://joplinapp.org)';
         expect(select(doc, 3, 9)).toEqual([0, doc.length]);

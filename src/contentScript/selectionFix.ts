@@ -1,5 +1,12 @@
 import { syntaxTree } from '@codemirror/language';
-import { EditorSelection, EditorState, type Extension, type SelectionRange, type Transaction } from '@codemirror/state';
+import {
+    EditorSelection,
+    EditorState,
+    RangeSet,
+    type Extension,
+    type SelectionRange,
+    type Transaction,
+} from '@codemirror/state';
 import { EditorView, ViewPlugin, type Decoration, type DecorationSet } from '@codemirror/view';
 import type { SyntaxNode } from '@lezer/common';
 
@@ -39,7 +46,7 @@ export interface MarkupConstruct {
     to: number;
     /** Syntax node whose hidden state controls snapping at the start. */
     openMark: Span;
-    /** Syntax node whose hidden state controls snapping at the end, or `null` for line prefixes. */
+    /** Span whose hidden state controls snapping at the end, or `null` for line prefixes. */
     closeMark: Span | null;
 }
 
@@ -74,7 +81,7 @@ const getWrappedConstruct = (node: SyntaxNode): MarkupConstruct | null => {
     };
 };
 
-/** `[label](url)`: the visible content is `label`; `[` and `](url)` are hidden. */
+/** A link's closing syntax can span several decorations and contain visible text, such as a title. */
 const getLinkConstruct = (node: SyntaxNode, state: EditorState): MarkupConstruct | null => {
     const marks = node.getChildren('LinkMark');
     const open = marks[0];
@@ -89,7 +96,7 @@ const getLinkConstruct = (node: SyntaxNode, state: EditorState): MarkupConstruct
         contentTo: close.from,
         to: node.to,
         openMark: open,
-        closeMark: close,
+        closeMark: { from: close.from, to: node.to },
     };
 };
 
@@ -233,17 +240,13 @@ const createHiddenCheck = (view: EditorView): HiddenCheck => {
         sets ??= view.state
             .facet(EditorView.decorations)
             .map((source) => (typeof source === 'function' ? source(view) : source));
-        return sets.some((set) => {
-            let found = false;
-            set.between(from, to, (decoFrom, decoTo, decoration) => {
-                if (decoFrom <= from && decoTo >= to && isHidingDecoration(decoration)) {
-                    found = true;
-                    return false;
-                }
-                return undefined;
-            });
-            return found;
-        });
+        let hiddenTo = from;
+        for (const cursor = RangeSet.iter(sets, from); cursor.value && cursor.from <= hiddenTo; cursor.next()) {
+            if (!isHidingDecoration(cursor.value)) continue;
+            hiddenTo = Math.max(hiddenTo, cursor.to);
+            if (hiddenTo >= to) return true;
+        }
+        return false;
     };
 };
 
