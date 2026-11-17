@@ -31,7 +31,7 @@ export interface Span {
 export interface MarkupConstruct {
     /** Start of the opening mark. */
     from: number;
-    /** Start of the visible content (after the opening mark and, for prefixes, trailing whitespace). */
+    /** Start of the visible content (after the hidden opening mark). */
     contentFrom: number;
     /** End of the visible content. */
     contentTo: number;
@@ -46,8 +46,9 @@ export interface MarkupConstruct {
 export type HiddenCheck = (span: Span) => boolean;
 
 const INLINE_MARKS = new Set(['EmphasisMark', 'StrikethroughMark', 'CodeMark', 'HighlightMarker', 'InsertMarker']);
-const PREFIX_MARKS = new Set(['HeaderMark', 'QuoteMark', 'ListMark']);
-const LEADING_WHITESPACE = /^[ \t]*/;
+// Bullet list marks are not included: Joplin replaces them with a visible widget, so the positions
+// on either side of a bullet are not ambiguous.
+const PREFIX_MARKS = new Set(['HeaderMark', 'QuoteMark']);
 const MAX_PASSES = 8;
 
 const getInlineConstruct = (node: SyntaxNode): MarkupConstruct | null => {
@@ -95,22 +96,23 @@ const isLinePrefix = (mark: SyntaxNode, state: EditorState): boolean => {
             return mark.parent?.from === mark.from;
         case 'QuoteMark':
             return mark.from === state.doc.lineAt(mark.from).from;
-        case 'ListMark':
-            return mark.parent?.parent?.name === 'BulletList';
         default:
             return false;
     }
 };
 
-/** `# `, `> ` and `- ` prefixes: the visible content runs to the end of the line. */
+/**
+ * `# ` and `>` prefixes: the visible content runs to the end of the line. Joplin hides the space
+ * after a heading mark, but leaves the space after a quote mark visible.
+ */
 const getPrefixConstruct = (mark: SyntaxNode, state: EditorState): MarkupConstruct | null => {
     if (!isLinePrefix(mark, state)) return null;
 
     const line = state.doc.lineAt(mark.from);
-    const whitespace = LEADING_WHITESPACE.exec(state.sliceDoc(mark.to, line.to))?.[0].length ?? 0;
+    const hiddenSpace = mark.name === 'HeaderMark' && state.sliceDoc(mark.to, mark.to + 1) === ' ' ? 1 : 0;
     return {
         from: mark.from,
-        contentFrom: mark.to + whitespace,
+        contentFrom: Math.min(mark.to + hiddenSpace, line.to),
         contentTo: line.to,
         to: line.to,
         openMark: mark,
@@ -211,9 +213,11 @@ export const snapSelection = (
     return EditorSelection.create(ranges, selection.mainIndex);
 };
 
-/** Joplin hides marks with a `cm-hidden` mark decoration, and replaces bullets with widgets. */
+/**
+ * Joplin hides marks with a near-zero-width `cm-hidden` mark decoration. Replace widgets (bullets,
+ * checkboxes) are visible, so they don't make positions ambiguous and aren't treated as hidden.
+ */
 const isHidingDecoration = (decoration: Decoration): boolean => {
-    if ((decoration as { isReplace?: unknown }).isReplace === true) return true;
     const className = (decoration.spec as { class?: unknown }).class;
     return typeof className === 'string' && className.split(/\s+/).includes('cm-hidden');
 };

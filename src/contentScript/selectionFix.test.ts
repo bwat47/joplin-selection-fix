@@ -172,9 +172,21 @@ describe('selectionFixExtension', () => {
         expect(select(doc, 3, 9)).toEqual([0, doc.length]);
     });
 
-    it('handles block quotes and bullet lists', () => {
+    it('includes a hidden quote mark when the line is covered', () => {
         expect(select('> quoted\nnext', 1, 13)).toEqual([0, 13]);
-        expect(select('- item\nnext', 2, 11)).toEqual([0, 11]);
-        expect(select('> - item\nnext', 4, 13)).toEqual([0, 13]);
+    });
+
+    it('does not extend past the visible space after a quote mark', () => {
+        expect(select('> quoted\nnext', 2, 13)).toEqual([2, 13]);
+        expect(select('> quoted\nnext', 13, 2)).toEqual([13, 2]);
+    });
+
+    it('does not extend selections to bullet list markers (they are visible widgets)', () => {
+        const doc = '## Test list item\n\n- Fix the files one by one.\n';
+        const textStart = doc.indexOf('Fix');
+        const lineEnd = doc.indexOf('.\n') + 1;
+        expect(select(doc, lineEnd, textStart)).toEqual([lineEnd, textStart]);
+        expect(select(doc, textStart, lineEnd)).toEqual([textStart, lineEnd]);
+        expect(select('> - item\nnext', 4, 13)).toEqual([4, 13]);
     });
 });
