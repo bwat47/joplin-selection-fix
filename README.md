@@ -18,7 +18,7 @@ While you drag, each selection endpoint that sits inside a hidden mark is snappe
 
 The adjustment happens while the marks are still hidden, so the selection looks the same and doesn't jump when the marks are revealed.
 
-Handled: bold/italic (including nested), inline code, strikethrough, highlight (`==`), insert (`++`), links, headings, and block quotes. Bullet markers are left alone: they render as a visible bullet, so there is no ambiguity about which side of them you selected.
+Handled: bold/italic (including nested), inline code, fenced code blocks, strikethrough, highlight (`==`), insert (`++`), links, headings, and block quotes. Bullet markers are left alone: they render as a visible bullet, so there is no ambiguity about which side of them you selected.
 
 The plugin only adjusts endpoints next to marks that are actually hidden at that moment, so it does nothing when render markup is disabled or the marks are already revealed. Only mouse selections are affected; keyboard selection is unchanged.
 

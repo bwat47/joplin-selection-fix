@@ -137,6 +137,34 @@ describe('selectionFixExtension', () => {
         expect(select('x ~~gone~~ y', 4, 12)).toEqual([2, 12]);
     });
 
+    describe('fenced code blocks', () => {
+        const doc = 'Intro\n```js\nconst a = 1;\n```\nAfter';
+        // '```' = 6-9, 'js' = 9-11, code = 12-24, closing '```' = 25-28
+
+        it('includes the opening fence when dragging from the closing fence to the top', () => {
+            expect(select(doc, 28, 9)).toEqual([28, 6]);
+            expect(select(doc, 25, 9)).toEqual([28, 6]);
+        });
+
+        it('includes both fences when dragging top to bottom', () => {
+            expect(select(doc, 9, 25)).toEqual([6, 28]);
+        });
+
+        it('handles blocks without a language', () => {
+            const plain = '```\ncode\n```';
+            expect(select(plain, 12, 3)).toEqual([12, 0]);
+            expect(select(plain, 9, 3)).toEqual([12, 0]);
+        });
+
+        it('excludes the opening fence from a partial selection of the code', () => {
+            expect(select(doc, 18, 6)).toEqual([18, 9]);
+        });
+
+        it('leaves unterminated blocks alone', () => {
+            expect(select('```js\ncode', 10, 5)).toEqual([10, 5]);
+        });
+    });
+
     describe('headings', () => {
         const doc = 'Intro\n## Heading\nAfter';
         // line 2: '## ' = 6-9, 'Heading' = 9-16; line 3 starts at 17

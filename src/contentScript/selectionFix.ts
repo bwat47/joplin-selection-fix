@@ -51,9 +51,13 @@ const INLINE_MARKS = new Set(['EmphasisMark', 'StrikethroughMark', 'CodeMark', '
 const PREFIX_MARKS = new Set(['HeaderMark', 'QuoteMark']);
 const MAX_PASSES = 8;
 
-const getInlineConstruct = (node: SyntaxNode): MarkupConstruct | null => {
-    if (node.name === 'FencedCode') return null;
-
+/**
+ * Constructs wrapped in a pair of marks: `**bold**`, `` `code` ``, `~~strike~~`, etc. This also
+ * covers fenced code blocks, whose ``` fences Joplin hides unless the cursor is on the fence line.
+ * The content of a fenced block starts after the opening backticks (the language stays visible).
+ * Unterminated blocks have no closing CodeMark and are skipped.
+ */
+const getWrappedConstruct = (node: SyntaxNode): MarkupConstruct | null => {
     const open = node.firstChild;
     const close = node.lastChild;
     if (!open || !close || open.from === close.from) return null;
@@ -123,7 +127,7 @@ const getPrefixConstruct = (mark: SyntaxNode, state: EditorState): MarkupConstru
 export const getConstruct = (node: SyntaxNode, state: EditorState): MarkupConstruct | null => {
     if (node.name === 'Link') return getLinkConstruct(node, state);
     if (PREFIX_MARKS.has(node.name)) return getPrefixConstruct(node, state);
-    return getInlineConstruct(node);
+    return getWrappedConstruct(node);
 };
 
 /** Collects constructs on the lines containing the given positions. */
