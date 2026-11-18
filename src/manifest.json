@@ -2,7 +2,7 @@
     "manifest_version": 1,
     "id": "com.bwat47.joplin-selection-fix",
     "app_min_version": "3.7",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "name": "Rendered Markup Selection Fix",
     "description": "Keeps mouse selections from splitting hidden Markdown formatting characters when render markup is enabled",
     "author": "bwat47",
