@@ -115,6 +115,8 @@ const isLinePrefix = (mark: SyntaxNode, state: EditorState): boolean => {
 /**
  * `# ` and `>` prefixes: the visible content runs to the end of the line. Joplin hides the space
  * after a heading mark, but leaves the space after a quote mark visible.
+ * For `# Heading ##`, a drag that reaches the line end already includes the closing hashes.
+ * A drag that stops before them is treated as a partial heading selection.
  */
 const getPrefixConstruct = (mark: SyntaxNode, state: EditorState): MarkupConstruct | null => {
     if (!isLinePrefix(mark, state)) return null;
