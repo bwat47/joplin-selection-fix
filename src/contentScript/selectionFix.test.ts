@@ -185,6 +185,81 @@ describe('selectionFixExtension', () => {
         });
     });
 
+    describe('marks that leave the viewport mid-drag', () => {
+        const doc = 'Intro\n```js\nconst a = 1;\n```\nAfter';
+        // '```' = 6-9, 'js' = 9-11, code = 12-24, closing '```' = 25-28
+
+        /** Joplin only decorates the viewport; `visibleFrom` simulates scrolling past the top. */
+        const createScrollingView = () => {
+            const hiding = { visibleFrom: 0, enabled: true };
+            const view = new EditorView({
+                parent: document.body,
+                state: EditorState.create({
+                    doc,
+                    extensions: [
+                        markdown({ base: markdownLanguage }),
+                        EditorView.decorations.of((decoratedView) =>
+                            hiding.enabled
+                                ? fakeJoplinHiding(decoratedView.state).update({
+                                      filter: (from) => from >= hiding.visibleFrom,
+                                  })
+                                : Decoration.none
+                        ),
+                        selectionFixExtension,
+                    ],
+                }),
+            });
+            forceParsing(view, doc.length);
+            views.push(view);
+            return { view, hiding };
+        };
+
+        const drag = (view: EditorView, anchor: number, head: number, userEvent = 'select.pointer') => {
+            view.dispatch({ selection: EditorSelection.single(anchor, head), userEvent });
+            const { anchor: newAnchor, head: newHead } = view.state.selection.main;
+            return [newAnchor, newHead];
+        };
+
+        it('keeps snapping the anchor after its mark scrolls out of view', () => {
+            const { view, hiding } = createScrollingView();
+            expect(drag(view, 9, 20)).toEqual([9, 20]);
+            hiding.visibleFrom = 12;
+            expect(drag(view, 9, 25)).toEqual([6, 28]);
+        });
+
+        it('keeps snapping when the anchor scrolls out of view before the selection expands', () => {
+            const { view, hiding } = createScrollingView();
+            view.dom.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            expect(drag(view, 9, 9)).toEqual([9, 9]);
+            hiding.visibleFrom = 12;
+            expect(drag(view, 9, 25)).toEqual([6, 28]);
+        });
+
+        it('remembers the anchor when the first selection stays inside a hidden mark', () => {
+            const { view, hiding } = createScrollingView();
+            view.dom.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            expect(drag(view, 8, 9)).toEqual([8, 9]);
+            hiding.visibleFrom = 12;
+            expect(drag(view, 8, 25)).toEqual([6, 28]);
+        });
+
+        it('forgets remembered marks on the next mousedown', () => {
+            const { view, hiding } = createScrollingView();
+            expect(drag(view, 9, 25)).toEqual([6, 28]);
+            hiding.enabled = false;
+            view.dom.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            expect(drag(view, 9, 25)).toEqual([9, 25]);
+        });
+
+        it('forgets remembered marks after a non-pointer selection change', () => {
+            const { view, hiding } = createScrollingView();
+            expect(drag(view, 9, 25)).toEqual([6, 28]);
+            hiding.enabled = false;
+            drag(view, 0, 0, 'select');
+            expect(drag(view, 9, 25)).toEqual([9, 25]);
+        });
+    });
+
     describe('fenced code blocks', () => {
         const doc = 'Intro\n```js\nconst a = 1;\n```\nAfter';
         // '```' = 6-9, 'js' = 9-11, code = 12-24, closing '```' = 25-28

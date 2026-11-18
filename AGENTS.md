@@ -12,6 +12,8 @@
 - `src/contentScript/selectionFix.ts` registers a transaction filter for `select.pointer` transactions that snaps
   selection endpoints lying inside hidden Markdown marks. "Hidden" is read from the view's live decorations
   (Joplin's `cm-hidden` mark decorations and replace widgets), so revealed markup is never touched.
+  Joplin only decorates the viewport, so marks seen hidden during a mouse gesture are remembered until
+  the next mousedown, document change, or non-pointer selection change.
 
 ## Coding Style & Naming Conventions
 

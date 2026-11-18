@@ -7,7 +7,7 @@ import {
     type SelectionRange,
     type Transaction,
 } from '@codemirror/state';
-import { EditorView, ViewPlugin, type Decoration, type DecorationSet } from '@codemirror/view';
+import { EditorView, ViewPlugin, type Decoration, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import type { SyntaxNode } from '@lezer/common';
 
 import type { CodeMirrorControl, MarkdownEditorContentScriptModule } from 'api/types';
@@ -224,10 +224,17 @@ const snapToConstruct = (span: Span, construct: MarkupConstruct, isHidden: Hidde
     const { from: start, contentFrom, contentTo, to: end, openMark, closeMark } = construct;
     const { from, to } = span;
 
-    // Ignore empty content and selections lying entirely inside one mark.
     if (contentFrom >= contentTo) return span;
-    if (inRange(from, start, contentFrom) && inRange(to, start, contentFrom)) return span;
-    if (inRange(from, contentTo, end) && inRange(to, contentTo, end)) return span;
+
+    // Remember a hidden mark even if the selection hasn't extended past it yet.
+    if (inRange(from, start, contentFrom) && inRange(to, start, contentFrom)) {
+        isHidden(openMark);
+        return span;
+    }
+    if (inRange(from, contentTo, end) && inRange(to, contentTo, end)) {
+        if (closeMark) isHidden(closeMark);
+        return span;
+    }
 
     const covers = from <= contentFrom && to >= contentTo;
     let result = span;
@@ -250,9 +257,16 @@ export const snapSpan = (span: Span, constructs: readonly MarkupConstruct[], isH
 };
 
 const snapRange = (state: EditorState, range: SelectionRange, isHidden: HiddenCheck): SelectionRange => {
-    if (range.empty) return range;
-
     const constructs = collectConstructs(state, [range.from, range.to]);
+    if (range.empty) {
+        // The anchor can scroll away before the selection expands. Remember its marks without moving the caret.
+        for (const { from, contentFrom, contentTo, to, openMark, closeMark } of constructs) {
+            if (inRange(range.anchor, from, contentFrom)) isHidden(openMark);
+            if (closeMark && inRange(range.anchor, contentTo, to)) isHidden(closeMark);
+        }
+        return range;
+    }
+
     const { from, to } = snapSpan({ from: range.from, to: range.to }, constructs, isHidden);
     if (from === range.from && to === range.to) return range;
 
@@ -279,7 +293,7 @@ const isHidingDecoration = (decoration: Decoration): boolean => {
 };
 
 /** Checks the view's current decorations, so marks Joplin has revealed are left alone. */
-const createHiddenCheck = (view: EditorView): HiddenCheck => {
+const isHiddenNow = (view: EditorView): HiddenCheck => {
     let sets: DecorationSet[] | null = null;
     return ({ from, to }) => {
         sets ??= view.state
@@ -298,10 +312,52 @@ const createHiddenCheck = (view: EditorView): HiddenCheck => {
 // Transaction filters don't receive the view, so track views to read their decorations.
 const views = new Set<EditorView>();
 
-const viewTracker = ViewPlugin.define((view) => {
-    views.add(view);
-    return { destroy: () => views.delete(view) };
-});
+const spanKey = ({ from, to }: Span) => `${from}:${to}`;
+
+/**
+ * Tracks a view and remembers which marks were hidden during the current mouse gesture.
+ *
+ * Joplin only decorates the visible part of the document, so a mark that scrolls out of view
+ * mid-drag loses its decoration even though it is still hidden: Joplin keeps the reveal state
+ * fixed for the whole gesture. Without this memory, the anchor's snap would be undone once its
+ * construct leaves the viewport.
+ */
+class GestureTracker {
+    private hiddenDuringGesture = new Set<string>();
+
+    public constructor(private view: EditorView) {
+        views.add(view);
+        // Capture phase, so the memory is cleared before CodeMirror handles the new gesture.
+        view.dom.addEventListener('mousedown', this.reset, true);
+    }
+
+    public update(update: ViewUpdate) {
+        const pointerSelection = update.transactions.some((tr) => tr.isUserEvent('select.pointer'));
+        if (update.docChanged || (update.selectionSet && !pointerSelection)) this.reset();
+    }
+
+    public destroy() {
+        views.delete(this.view);
+        this.view.dom.removeEventListener('mousedown', this.reset, true);
+    }
+
+    public hiddenCheck(): HiddenCheck {
+        const isHidden = isHiddenNow(this.view);
+        return (span) => {
+            const key = spanKey(span);
+            if (this.hiddenDuringGesture.has(key)) return true;
+            if (!isHidden(span)) return false;
+            this.hiddenDuringGesture.add(key);
+            return true;
+        };
+    }
+
+    private reset = () => {
+        this.hiddenDuringGesture.clear();
+    };
+}
+
+const gestureTracker = ViewPlugin.fromClass(GestureTracker);
 
 const findView = (state: EditorState): EditorView | undefined => {
     for (const view of views) {
@@ -313,15 +369,15 @@ const findView = (state: EditorState): EditorView | undefined => {
 const selectionFilter = EditorState.transactionFilter.of((tr: Transaction) => {
     if (!tr.selection || tr.docChanged || !tr.isUserEvent('select.pointer')) return tr;
 
-    const view = findView(tr.startState);
-    if (!view) return tr;
+    const tracker = findView(tr.startState)?.plugin(gestureTracker);
+    if (!tracker) return tr;
 
-    const snapped = snapSelection(tr.startState, tr.selection, createHiddenCheck(view));
+    const snapped = snapSelection(tr.startState, tr.selection, tracker.hiddenCheck());
     if (snapped.eq(tr.selection)) return tr;
     return [tr, { selection: snapped }];
 });
 
-export const selectionFixExtension: Extension = [viewTracker, selectionFilter];
+export const selectionFixExtension: Extension = [gestureTracker, selectionFilter];
 
 export default (): MarkdownEditorContentScriptModule => {
     return {
