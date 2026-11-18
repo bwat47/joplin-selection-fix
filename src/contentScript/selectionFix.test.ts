@@ -25,6 +25,8 @@ const fakeJoplinHiding = (state: EditorState): DecorationSet => {
                 ranges.push(hiddenMark.range(from, hasSpace ? to + 1 : to));
             } else if (name === 'LinkMark' || (name === 'URL' && node.parent?.name === 'Link')) {
                 ranges.push(hiddenMark.range(from, to));
+            } else if (name === 'HTMLTag' && /^<\/?(?:sub|sup|strike|span)(?=[\s>])/i.test(state.sliceDoc(from, to))) {
+                ranges.push(hiddenMark.range(from, to));
             } else if (name === 'ListMark' && node.parent?.parent?.name === 'BulletList') {
                 ranges.push(Decoration.replace({ widget: new BulletWidget() }).range(from, to));
             }
@@ -135,6 +137,52 @@ describe('selectionFixExtension', () => {
     it('handles inline code and strikethrough', () => {
         expect(select('x `code` y', 0, 7)).toEqual([0, 8]);
         expect(select('x ~~gone~~ y', 4, 12)).toEqual([2, 12]);
+    });
+
+    describe('inline HTML', () => {
+        it.each([
+            ['<sup>', '</sup>'],
+            ['<SUB>', '</sub>'],
+            ['<strike>', '</strike>'],
+            ['<span style="color: red;">', '</span>'],
+        ])('includes both hidden tags around a full selection (%s)', (open, close) => {
+            const doc = `x ${open}word${close} y`;
+            const start = doc.indexOf('word');
+            const end = start + 'word'.length;
+            expect(select(doc, start, end)).toEqual([2, end + close.length]);
+            expect(select(doc, end, start)).toEqual([end + close.length, 2]);
+            expect(select(doc, start, end, { hideMarkup: false })).toEqual([start, end]);
+        });
+
+        it('excludes dangling tags from a partial selection', () => {
+            const doc = 'x <sup>word</sup> y';
+            expect(select(doc, 4, 9)).toEqual([7, 9]);
+            expect(select(doc, 9, 14)).toEqual([9, 11]);
+        });
+
+        it('pairs nested tags of the same name', () => {
+            const doc = 'x <sub>outer <sub>inner</sub> end</sub> y';
+            const start = doc.indexOf('inner');
+            expect(select(doc, start, start + 5)).toEqual([start - 5, start + 11]);
+            expect(select(doc, doc.indexOf('outer'), doc.lastIndexOf('</sub>'))).toEqual([2, doc.length - 2]);
+        });
+
+        it('includes hidden HTML tags around a complete Markdown selection', () => {
+            const doc = 'x <sup>**bold**</sup> y';
+            const start = doc.indexOf('bold');
+            expect(select(doc, start, start + 4)).toEqual([2, doc.length - 2]);
+        });
+
+        it('pairs a closing tag with an opening tag above both selection endpoints', () => {
+            const doc = 'x <sup>first\nsecond</sup> y';
+            const close = doc.indexOf('</sup>');
+            const start = doc.indexOf('second');
+            expect(select(doc, start, close + 2)).toEqual([start, close]);
+        });
+
+        it('leaves an unmatched tag alone', () => {
+            expect(select('x <sup>word', 4, 11)).toEqual([4, 11]);
+        });
     });
 
     describe('fenced code blocks', () => {

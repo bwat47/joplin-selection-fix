@@ -56,6 +56,7 @@ const INLINE_MARKS = new Set(['EmphasisMark', 'StrikethroughMark', 'CodeMark', '
 // Bullet list marks are not included: Joplin replaces them with a visible widget, so the positions
 // on either side of a bullet are not ambiguous.
 const PREFIX_MARKS = new Set(['HeaderMark', 'QuoteMark']);
+const INLINE_HTML_TAG = /^<(\/?)(sub|sup|strike|span)(?=[\s>])/i;
 const MAX_PASSES = 8;
 
 /**
@@ -79,6 +80,38 @@ const getWrappedConstruct = (node: SyntaxNode): MarkupConstruct | null => {
         openMark: open,
         closeMark: close,
     };
+};
+
+const readInlineHtmlTag = (node: SyntaxNode, state: EditorState) => {
+    if (node.name !== 'HTMLTag') return null;
+    const [, slash, name] = INLINE_HTML_TAG.exec(state.sliceDoc(node.from, node.to)) ?? [];
+    return name ? { name: name.toLowerCase(), closing: slash === '/' } : null;
+};
+
+/** Joplin pairs inline HTML tags among siblings, counting nested tags of the same name. */
+const getInlineHtmlConstruct = (node: SyntaxNode, state: EditorState): MarkupConstruct | null => {
+    const tag = readInlineHtmlTag(node, state);
+    if (!tag) return null;
+
+    const sibling = tag.closing ? 'prevSibling' : 'nextSibling';
+    let depth = 1;
+    for (let other = node[sibling]; other; other = other[sibling]) {
+        const otherTag = readInlineHtmlTag(other, state);
+        if (otherTag?.name !== tag.name) continue;
+        depth += otherTag.closing === tag.closing ? 1 : -1;
+        if (depth !== 0) continue;
+
+        const [open, close] = tag.closing ? [other, node] : [node, other];
+        return {
+            from: open.from,
+            contentFrom: open.to,
+            contentTo: close.from,
+            to: close.to,
+            openMark: open,
+            closeMark: close,
+        };
+    }
+    return null;
 };
 
 /** A link's closing syntax can span several decorations and contain visible text, such as a title. */
@@ -135,6 +168,7 @@ const getPrefixConstruct = (mark: SyntaxNode, state: EditorState): MarkupConstru
 
 export const getConstruct = (node: SyntaxNode, state: EditorState): MarkupConstruct | null => {
     if (node.name === 'Link') return getLinkConstruct(node, state);
+    if (node.name === 'HTMLTag') return getInlineHtmlConstruct(node, state);
     if (PREFIX_MARKS.has(node.name)) return getPrefixConstruct(node, state);
     return getWrappedConstruct(node);
 };
@@ -144,6 +178,7 @@ const collectConstructs = (state: EditorState, positions: readonly number[]): Ma
     const tree = syntaxTree(state);
     const constructs: MarkupConstruct[] = [];
     const seenLines = new Set<number>();
+    const seenHtmlTags = new Set<number>();
 
     for (const pos of positions) {
         const line = state.doc.lineAt(pos);
@@ -153,9 +188,17 @@ const collectConstructs = (state: EditorState, positions: readonly number[]): Ma
         tree.iterate({
             from: line.from,
             to: line.to,
-            enter: (ref) => {
-                const construct = getConstruct(ref.node, state);
-                if (construct) constructs.push(construct);
+            enter: ({ name, from, node }) => {
+                if (name === 'HTMLTag' && seenHtmlTags.has(from)) return;
+
+                const construct = getConstruct(node, state);
+                if (!construct) return;
+                // HTML constructs always have a closeMark; the check narrows the type.
+                if (name === 'HTMLTag' && construct.closeMark) {
+                    seenHtmlTags.add(construct.openMark.from);
+                    seenHtmlTags.add(construct.closeMark.from);
+                }
+                constructs.push(construct);
             },
         });
     }
